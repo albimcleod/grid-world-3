@@ -1,6 +1,6 @@
 import '../styles/StatsPanel.css'
 
-function StatsPanel({ stats }) {
+function StatsPanel({ stats, onStop }) {
   return (
     <div className="stats-panel">
       <h2>Island Statistics</h2>
@@ -16,6 +16,7 @@ function StatsPanel({ stats }) {
         <label>Cycles:</label>
         <span>{stats.cycleCount}</span>
       </div>
+      <button className="stop-button" onClick={onStop}>Stop</button>
     </div>
   )
 }

@@ -7,7 +7,7 @@ const LAND = 1
 const BLOB = 2
 const FOOD = 3
 
-function GameBoard({ onStatsChange }) {
+function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount }) {
   const [grid, setGrid] = useState([])
   const [blobs, setBlobs] = useState([])
   const [food, setFood] = useState([])
@@ -89,11 +89,17 @@ function GameBoard({ onStatsChange }) {
 
   const generateBlobs = (grid) => {
     const newBlobs = []
-    while(newBlobs.length < 100) {
+    while(newBlobs.length < initialBlobCount) {
       const x = Math.floor(Math.random() * GRID_SIZE)
       const y = Math.floor(Math.random() * GRID_SIZE)
       if(grid[y][x] === LAND) {
-        newBlobs.push({ x, y, id: Math.random() })
+        newBlobs.push({ 
+          x, 
+          y, 
+          id: Math.random(),
+          lastAte: 0,  // Track when the blob last ate
+          lastReproduced: -25  // Initialize to allow immediate reproduction
+        })
       }
     }
     return newBlobs
@@ -101,7 +107,7 @@ function GameBoard({ onStatsChange }) {
 
   const generateFood = (grid) => {
     const newFood = []
-    while(newFood.length < 100) {
+    while(newFood.length < initialFoodCount) {
       const x = Math.floor(Math.random() * GRID_SIZE)
       const y = Math.floor(Math.random() * GRID_SIZE)
       if(grid[y][x] === LAND && !food.some(f => f.x === x && f.y === y)) {
@@ -111,18 +117,54 @@ function GameBoard({ onStatsChange }) {
     return newFood
   }
 
+  const generateAdditionalFood = (grid, amount) => {
+    const newFood = [];
+    let attempts = 0;
+    const maxAttempts = 1000; // Prevent infinite loop if island is too full
+
+    while (newFood.length < amount && attempts < maxAttempts) {
+      const x = Math.floor(Math.random() * GRID_SIZE);
+      const y = Math.floor(Math.random() * GRID_SIZE);
+      
+      // Check if position is valid (on land and not occupied by existing food)
+      if (grid[y][x] === LAND && 
+          !food.some(f => f.x === x && f.y === y) &&
+          !newFood.some(f => f.x === x && f.y === y)) {
+        newFood.push({ x, y, id: Math.random() });
+      }
+      
+      attempts++;
+    }
+    
+    return newFood;
+  };
+
   const moveBlobs = () => {
     setCycles(prev => prev + 1)
+    
+    // First update hunger and remove starved blobs
+    setBlobs(prevBlobs => {
+      return prevBlobs.filter(blob => {
+        const cyclesSinceEating = cycles - blob.lastAte;
+        return cyclesSinceEating < 50;
+      });
+    });
+
+    // Add one new food item each cycle
+    const newFood = generateAdditionalFood(grid, 1);
+    setFood(prevFood => [...prevFood, ...newFood]);
+
+    // Check for reproduction
+    checkReproduction();
+
     setBlobs(prevBlobs => {
       return prevBlobs.map(blob => {
         // Look for nearby food
         const nearestFood = findNearestFood(blob);
         
         if (nearestFood) {
-          // Move towards food
           return moveTowardsFood(blob, nearestFood);
         } else {
-          // Random movement if no food in sight
           return randomMove(blob);
         }
       })
@@ -241,12 +283,97 @@ function GameBoard({ onStatsChange }) {
   const checkFoodConsumption = () => {
     setFood(prevFood => {
       return prevFood.filter(foodItem => {
-        return !blobs.some(blob => 
+        // Check if any blob is eating this food
+        const isEaten = blobs.some(blob => 
           blob.x === foodItem.x && blob.y === foodItem.y
-        )
+        );
+        
+        if (isEaten) {
+          // Update the blob that ate the food
+          setBlobs(prevBlobs => {
+            return prevBlobs.map(blob => {
+              if (blob.x === foodItem.x && blob.y === foodItem.y) {
+                return { ...blob, lastAte: cycles };
+              }
+              return blob;
+            });
+          });
+        }
+        
+        return !isEaten;
       })
     })
   }
+
+  const checkReproduction = () => {
+    const newBabies = [];
+    
+    // Check each blob for neighbors
+    blobs.forEach(blob1 => {
+      // Skip if blob1 has reproduced recently
+      if (cycles - blob1.lastReproduced < 25) return;
+
+      blobs.forEach(blob2 => {
+        // Skip checking blob against itself
+        if (blob1.id === blob2.id) return;
+        
+        // Skip if blob2 has reproduced recently
+        if (cycles - blob2.lastReproduced < 25) return;
+        
+        // Check if blobs are adjacent
+        const isAdjacent = Math.abs(blob1.x - blob2.x) <= 1 && 
+                          Math.abs(blob1.y - blob2.y) <= 1;
+        
+        if (isAdjacent) {
+          // Find a random valid position for the new blob
+          const babyPosition = findRandomLandPosition();
+          if (babyPosition) {
+            newBabies.push({
+              x: babyPosition.x,
+              y: babyPosition.y,
+              id: Math.random(),
+              lastAte: cycles,  // New blobs start with a fresh hunger timer
+              lastReproduced: cycles  // Initialize reproduction timer
+            });
+
+            // Update parent blobs' reproduction timers
+            setBlobs(prevBlobs => {
+              return prevBlobs.map(blob => {
+                if (blob.id === blob1.id || blob.id === blob2.id) {
+                  return { ...blob, lastReproduced: cycles };
+                }
+                return blob;
+              });
+            });
+          }
+        }
+      });
+    });
+    
+    // Add all new babies to the blob population
+    if (newBabies.length > 0) {
+      setBlobs(prevBlobs => [...prevBlobs, ...newBabies]);
+    }
+  };
+
+  const findRandomLandPosition = () => {
+    let attempts = 0;
+    const maxAttempts = 100;
+    
+    while (attempts < maxAttempts) {
+      const x = Math.floor(Math.random() * GRID_SIZE);
+      const y = Math.floor(Math.random() * GRID_SIZE);
+      
+      // Check if position is valid (on land and not occupied by other blobs)
+      if (grid[y][x] === LAND && !blobs.some(b => b.x === x && b.y === y)) {
+        return { x, y };
+      }
+      
+      attempts++;
+    }
+    
+    return null; // Return null if no valid position found
+  };
 
   return (
     <div className="game-board">
