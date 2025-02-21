@@ -6,6 +6,7 @@ import StartPanel from './components/StartPanel'
 
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
+  const [gamePaused, setGamePaused] = useState(false)
   const [initialBlobCount, setInitialBlobCount] = useState(100)
   const [initialFoodCount, setInitialFoodCount] = useState(100)
   const [gameStats, setGameStats] = useState({
@@ -25,8 +26,13 @@ function App() {
     }))
   }
 
+  const handleLastBlob = () => {
+    setGamePaused(true)
+  }
+
   const handleStopGame = () => {
     setGameStarted(false)
+    setGamePaused(false)
     // Reset stats for next game
     setGameStats({
       blobCount: initialBlobCount,
@@ -45,8 +51,14 @@ function App() {
             onStatsChange={setGameStats}
             initialBlobCount={initialBlobCount}
             initialFoodCount={initialFoodCount}
+            isPaused={gamePaused}
+            onLastBlob={handleLastBlob}
           />
-          <StatsPanel stats={gameStats} onStop={handleStopGame} />
+          <StatsPanel 
+            stats={gameStats} 
+            onStop={handleStopGame}
+            isPaused={gamePaused} 
+          />
         </div>
       )}
     </div>

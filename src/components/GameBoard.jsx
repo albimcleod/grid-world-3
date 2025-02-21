@@ -7,7 +7,7 @@ const LAND = 1
 const BLOB = 2
 const FOOD = 3
 
-function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount }) {
+function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused, onLastBlob }) {
   const [grid, setGrid] = useState([])
   const [blobs, setBlobs] = useState([])
   const [food, setFood] = useState([])
@@ -28,12 +28,14 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount }) {
 
   // Move blobs every second
   useEffect(() => {
+    if (isPaused) return;
+    
     const interval = setInterval(() => {
       moveBlobs()
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [blobs, food])
+  }, [blobs, food, isPaused])
 
   // Update stats whenever blobs or food change
   useEffect(() => {
@@ -120,23 +122,48 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount }) {
   const generateAdditionalFood = (grid, amount) => {
     const newFood = [];
     let attempts = 0;
-    const maxAttempts = 1000; // Prevent infinite loop if island is too full
+    const maxAttempts = 1000;
 
-    while (newFood.length < amount && attempts < maxAttempts) {
-      const x = Math.floor(Math.random() * GRID_SIZE);
-      const y = Math.floor(Math.random() * GRID_SIZE);
-      
-      // Check if position is valid (on land and not occupied by existing food)
-      if (grid[y][x] === LAND && 
-          !food.some(f => f.x === x && f.y === y) &&
-          !newFood.some(f => f.x === x && f.y === y)) {
-        newFood.push({ x, y, id: Math.random() });
+    // If there's no existing food, spawn randomly
+    if (food.length === 0) {
+      while (newFood.length < amount && attempts < maxAttempts) {
+        const x = Math.floor(Math.random() * GRID_SIZE);
+        const y = Math.floor(Math.random() * GRID_SIZE);
+        
+        if (isValidFoodPosition(x, y, newFood)) {
+          newFood.push({ x, y, id: Math.random() });
+        }
+        attempts++;
       }
-      
-      attempts++;
+    } else {
+      // Spawn near existing food
+      while (newFood.length < amount && attempts < maxAttempts) {
+        // Pick a random existing food as reference point
+        const referenceFood = food[Math.floor(Math.random() * food.length)];
+        
+        // Generate position within 10 steps of reference food
+        const dx = Math.floor(Math.random() * 21) - 10; // -10 to +10
+        const dy = Math.floor(Math.random() * 21) - 10;
+        
+        const x = Math.min(Math.max(referenceFood.x + dx, 0), GRID_SIZE - 1);
+        const y = Math.min(Math.max(referenceFood.y + dy, 0), GRID_SIZE - 1);
+        
+        if (isValidFoodPosition(x, y, newFood)) {
+          newFood.push({ x, y, id: Math.random() });
+        }
+        attempts++;
+      }
     }
     
     return newFood;
+  };
+
+  // Helper function to check if a position is valid for new food
+  const isValidFoodPosition = (x, y, newFood) => {
+    return grid[y][x] === LAND && 
+           !food.some(f => f.x === x && f.y === y) &&
+           !newFood.some(f => f.x === x && f.y === y) &&
+           !blobs.some(b => b.x === x && b.y === y);
   };
 
   const moveBlobs = () => {
@@ -144,10 +171,17 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount }) {
     
     // First update hunger and remove starved blobs
     setBlobs(prevBlobs => {
-      return prevBlobs.filter(blob => {
+      const remainingBlobs = prevBlobs.filter(blob => {
         const cyclesSinceEating = cycles - blob.lastAte;
         return cyclesSinceEating < 50;
       });
+
+      // Check if only one blob remains
+      if (remainingBlobs.length === 1) {
+        onLastBlob();
+      }
+
+      return remainingBlobs;
     });
 
     // Add one new food item each cycle
@@ -320,13 +354,18 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount }) {
         // Skip if blob2 has reproduced recently
         if (cycles - blob2.lastReproduced < 25) return;
         
+        // Check if both parents have eaten recently
+        const blob1HasEaten = cycles - blob1.lastAte < 25;
+        const blob2HasEaten = cycles - blob2.lastAte < 25;
+        if (!blob1HasEaten || !blob2HasEaten) return;
+        
         // Check if blobs are adjacent
         const isAdjacent = Math.abs(blob1.x - blob2.x) <= 1 && 
                           Math.abs(blob1.y - blob2.y) <= 1;
         
         if (isAdjacent) {
-          // Find a random valid position for the new blob
-          const babyPosition = findRandomLandPosition();
+          // Find a position near the parents
+          const babyPosition = findNearbyPosition(blob1, blob2);
           if (babyPosition) {
             newBabies.push({
               x: babyPosition.x,
@@ -356,23 +395,36 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount }) {
     }
   };
 
-  const findRandomLandPosition = () => {
+  const findNearbyPosition = (parent1, parent2) => {
     let attempts = 0;
-    const maxAttempts = 100;
+    const maxAttempts = 50;
+    
+    // Calculate center point between parents
+    const centerX = Math.floor((parent1.x + parent2.x) / 2);
+    const centerY = Math.floor((parent1.y + parent2.y) / 2);
     
     while (attempts < maxAttempts) {
-      const x = Math.floor(Math.random() * GRID_SIZE);
-      const y = Math.floor(Math.random() * GRID_SIZE);
+      // Generate position within 10 cells of center point
+      const dx = Math.floor(Math.random() * 21) - 10; // -10 to +10
+      const dy = Math.floor(Math.random() * 21) - 10;
       
-      // Check if position is valid (on land and not occupied by other blobs)
-      if (grid[y][x] === LAND && !blobs.some(b => b.x === x && b.y === y)) {
+      const x = Math.min(Math.max(centerX + dx, 0), GRID_SIZE - 1);
+      const y = Math.min(Math.max(centerY + dy, 0), GRID_SIZE - 1);
+      
+      // Check if position is valid
+      if (isValidBlobPosition(x, y)) {
         return { x, y };
       }
       
       attempts++;
     }
     
-    return null; // Return null if no valid position found
+    return null;
+  };
+
+  const isValidBlobPosition = (x, y) => {
+    return grid[y][x] === LAND && 
+           !blobs.some(b => b.x === x && b.y === y);
   };
 
   return (

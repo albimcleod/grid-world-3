@@ -1,9 +1,14 @@
 import '../styles/StatsPanel.css'
 
-function StatsPanel({ stats, onStop }) {
+function StatsPanel({ stats, onStop, isPaused }) {
   return (
     <div className="stats-panel">
       <h2>Island Statistics</h2>
+      {isPaused && (
+        <div className="paused-message">
+          Game Paused - Only One Blob Remains
+        </div>
+      )}
       <div className="stat">
         <label>Blobs:</label>
         <span>{stats.blobCount}</span>
