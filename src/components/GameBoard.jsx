@@ -6,9 +6,12 @@ const WATER = 0
 const LAND = 1
 const BLOB = 2
 const FOOD = 3
+const VILLAGE_SIZE = 25
+const EDGE_PADDING = 15
 
 function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused, onLastBlob }) {
   const [grid, setGrid] = useState([])
+  const [villages, setVillages] = useState([])
   const [blobs, setBlobs] = useState([])
   const [food, setFood] = useState([])
   const [cycles, setCycles] = useState(0)
@@ -18,10 +21,12 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
   // Generate initial island
   useEffect(() => {
     const newGrid = generateIsland()
+    const newVillages = generateVillages()
     const newBlobs = generateBlobs(newGrid)
     const newFood = generateFood(newGrid)
     
     setGrid(newGrid)
+    setVillages(newVillages)
     setBlobs(newBlobs)
     setFood(newFood)
   }, [])
@@ -427,6 +432,39 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
            !blobs.some(b => b.x === x && b.y === y);
   };
 
+  const generateVillages = () => {
+    return [
+      // Top-left village
+      {
+        id: 0,
+        x: EDGE_PADDING,
+        y: EDGE_PADDING,
+        size: VILLAGE_SIZE
+      },
+      // Top-right village
+      {
+        id: 1,
+        x: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
+        y: EDGE_PADDING,
+        size: VILLAGE_SIZE
+      },
+      // Bottom-left village
+      {
+        id: 2,
+        x: EDGE_PADDING,
+        y: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
+        size: VILLAGE_SIZE
+      },
+      // Bottom-right village
+      {
+        id: 3,
+        x: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
+        y: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
+        size: VILLAGE_SIZE
+      }
+    ];
+  };
+
   return (
     <div className="game-board">
       {grid.map((row, y) => (
@@ -434,8 +472,15 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
           {row.map((cell, x) => {
             const hasBlob = blobs.some(b => b.x === x && b.y === y)
             const hasFood = food.some(f => f.x === x && f.y === y)
+            const isVillageBorder = villages.some(village => (
+              (x >= village.x && x < village.x + village.size && 
+               (y === village.y || y === village.y + village.size - 1)) ||
+              (y >= village.y && y < village.y + village.size && 
+               (x === village.x || x === village.x + village.size - 1))
+            ))
             const cellType = hasBlob ? 'blob' : 
                            hasFood ? 'food' :
+                           isVillageBorder ? 'village-border' :
                            cell === LAND ? 'land' : 'water'
             return (
               <div key={`${x}-${y}`} className={`cell ${cellType}`} />

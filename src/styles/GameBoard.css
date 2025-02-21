@@ -23,6 +23,10 @@
   background-color: #8bc34a;
 }
 
+.village-border {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
 .blob {
   background-color: #ff5722;
   border-radius: 50%;
