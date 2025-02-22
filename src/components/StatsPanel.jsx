@@ -9,6 +9,10 @@ function StatsPanel({ stats, onStop, isPaused }) {
           Game Paused - Only One Blob Remains
         </div>
       )}
+      <div className="stat season">
+        <label>Season:</label>
+        <span>{stats.season}</span>
+      </div>
       <div className="stat">
         <label>Blobs:</label>
         <span>{stats.blobCount}</span>

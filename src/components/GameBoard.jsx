@@ -9,12 +9,22 @@ const FOOD = 3
 const VILLAGE_SIZE = 25
 const EDGE_PADDING = 15
 
+const SEASONS = {
+  SUMMER: { name: 'Summer', foodPerCycle: 3 },
+  AUTUMN: { name: 'Autumn', foodPerCycle: 2 },
+  WINTER: { name: 'Winter', foodPerCycle: 1 },
+  SPRING: { name: 'Spring', foodPerCycle: 4 }
+};
+
+const SEASON_DURATION = 25;
+
 function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused, onLastBlob }) {
   const [grid, setGrid] = useState([])
   const [villages, setVillages] = useState([])
   const [blobs, setBlobs] = useState([])
   const [food, setFood] = useState([])
   const [cycles, setCycles] = useState(0)
+  const [currentSeason, setCurrentSeason] = useState(SEASONS.SPRING)
 
   const VISION_RANGE = 10;
 
@@ -42,14 +52,22 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
     return () => clearInterval(interval)
   }, [blobs, food, isPaused])
 
+  // Update season based on cycle count
+  useEffect(() => {
+    const seasonIndex = Math.floor(cycles / SEASON_DURATION) % 4;
+    const newSeason = [SEASONS.SPRING, SEASONS.SUMMER, SEASONS.AUTUMN, SEASONS.WINTER][seasonIndex];
+    setCurrentSeason(newSeason);
+  }, [cycles]);
+
   // Update stats whenever blobs or food change
   useEffect(() => {
     onStatsChange({
       blobCount: blobs.length,
       foodCount: food.length,
-      cycleCount: cycles
+      cycleCount: cycles,
+      season: currentSeason.name
     })
-  }, [blobs, food, cycles])
+  }, [blobs, food, cycles, currentSeason])
 
   const generateIsland = () => {
     // Create empty grid
@@ -195,8 +213,8 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
       return remainingBlobs;
     });
 
-    // Add one new food item each cycle
-    const newFood = generateAdditionalFood(grid, 1);
+    // Add food based on current season
+    const newFood = generateAdditionalFood(grid, currentSeason.foodPerCycle);
     setFood(prevFood => [...prevFood, ...newFood]);
 
     // Check for reproduction
