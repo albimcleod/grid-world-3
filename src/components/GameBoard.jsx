@@ -22,7 +22,7 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
   useEffect(() => {
     const newGrid = generateIsland()
     const newVillages = generateVillages()
-    const newBlobs = generateBlobs(newGrid)
+    const newBlobs = generateBlobs(newGrid, newVillages)
     const newFood = generateFood(newGrid)
     
     setGrid(newGrid)
@@ -94,18 +94,24 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
     return count
   }
 
-  const generateBlobs = (grid) => {
+  const generateBlobs = (grid, villages) => {
     const newBlobs = []
     while(newBlobs.length < initialBlobCount) {
-      const x = Math.floor(Math.random() * GRID_SIZE)
-      const y = Math.floor(Math.random() * GRID_SIZE)
+      // Randomly select a village to be the home
+      const homeVillage = villages[Math.floor(Math.random() * villages.length)];
+      
+      // Generate position within the village boundaries
+      const x = Math.floor(Math.random() * (homeVillage.size - 2)) + homeVillage.x + 1;
+      const y = Math.floor(Math.random() * (homeVillage.size - 2)) + homeVillage.y + 1;
+      
       if(grid[y][x] === LAND) {
         newBlobs.push({ 
           x, 
           y, 
           id: Math.random(),
-          lastAte: 0,  // Track when the blob last ate
-          lastReproduced: -25  // Initialize to allow immediate reproduction
+          lastAte: 0,
+          lastReproduced: -25,
+          homeVillageId: homeVillage.id
         })
       }
     }
@@ -347,9 +353,7 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
   const checkReproduction = () => {
     const newBabies = [];
     
-    // Check each blob for neighbors
     blobs.forEach(blob1 => {
-      // Skip if blob1 has reproduced recently
       if (cycles - blob1.lastReproduced < 25) return;
 
       blobs.forEach(blob2 => {
@@ -369,15 +373,15 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
                           Math.abs(blob1.y - blob2.y) <= 1;
         
         if (isAdjacent) {
-          // Find a position near the parents
           const babyPosition = findNearbyPosition(blob1, blob2);
           if (babyPosition) {
             newBabies.push({
               x: babyPosition.x,
               y: babyPosition.y,
               id: Math.random(),
-              lastAte: cycles,  // New blobs start with a fresh hunger timer
-              lastReproduced: cycles  // Initialize reproduction timer
+              lastAte: cycles,
+              lastReproduced: cycles,
+              homeVillageId: blob1.homeVillageId  // Inherit home village from parent1
             });
 
             // Update parent blobs' reproduction timers
@@ -394,7 +398,6 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
       });
     });
     
-    // Add all new babies to the blob population
     if (newBabies.length > 0) {
       setBlobs(prevBlobs => [...prevBlobs, ...newBabies]);
     }
@@ -404,17 +407,13 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
     let attempts = 0;
     const maxAttempts = 50;
     
-    // Calculate center point between parents
-    const centerX = Math.floor((parent1.x + parent2.x) / 2);
-    const centerY = Math.floor((parent1.y + parent2.y) / 2);
+    // Use parent1's home village
+    const homeVillage = villages.find(v => v.id === parent1.homeVillageId);
     
     while (attempts < maxAttempts) {
-      // Generate position within 10 cells of center point
-      const dx = Math.floor(Math.random() * 21) - 10; // -10 to +10
-      const dy = Math.floor(Math.random() * 21) - 10;
-      
-      const x = Math.min(Math.max(centerX + dx, 0), GRID_SIZE - 1);
-      const y = Math.min(Math.max(centerY + dy, 0), GRID_SIZE - 1);
+      // Generate position within the village boundaries
+      const x = Math.floor(Math.random() * (homeVillage.size - 2)) + homeVillage.x + 1;
+      const y = Math.floor(Math.random() * (homeVillage.size - 2)) + homeVillage.y + 1;
       
       // Check if position is valid
       if (isValidBlobPosition(x, y)) {
@@ -439,28 +438,32 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
         id: 0,
         x: EDGE_PADDING,
         y: EDGE_PADDING,
-        size: VILLAGE_SIZE
+        size: VILLAGE_SIZE,
+        color: 'rose'
       },
       // Top-right village
       {
         id: 1,
         x: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
         y: EDGE_PADDING,
-        size: VILLAGE_SIZE
+        size: VILLAGE_SIZE,
+        color: 'darkblue'
       },
       // Bottom-left village
       {
         id: 2,
         x: EDGE_PADDING,
         y: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
-        size: VILLAGE_SIZE
+        size: VILLAGE_SIZE,
+        color: 'purple'
       },
       // Bottom-right village
       {
         id: 3,
         x: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
         y: GRID_SIZE - EDGE_PADDING - VILLAGE_SIZE,
-        size: VILLAGE_SIZE
+        size: VILLAGE_SIZE,
+        color: 'darkred'
       }
     ];
   };
@@ -470,17 +473,17 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
       {grid.map((row, y) => (
         <div key={y} className="row">
           {row.map((cell, x) => {
-            const hasBlob = blobs.some(b => b.x === x && b.y === y)
+            const blob = blobs.find(b => b.x === x && b.y === y)
             const hasFood = food.some(f => f.x === x && f.y === y)
-            const isVillageBorder = villages.some(village => (
+            const village = villages.find(village => (
               (x >= village.x && x < village.x + village.size && 
                (y === village.y || y === village.y + village.size - 1)) ||
               (y >= village.y && y < village.y + village.size && 
                (x === village.x || x === village.x + village.size - 1))
             ))
-            const cellType = hasBlob ? 'blob' : 
+            const cellType = blob ? `blob-${blob.homeVillageId}` : 
                            hasFood ? 'food' :
-                           isVillageBorder ? 'village-border' :
+                           village ? `village-border-${village.color}` :
                            cell === LAND ? 'land' : 'water'
             return (
               <div key={`${x}-${y}`} className={`cell ${cellType}`} />

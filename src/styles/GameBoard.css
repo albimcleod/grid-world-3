@@ -27,8 +27,43 @@
   background-color: rgba(0, 0, 0, 0.3);
 }
 
+.village-border-rose {
+  background-color: rgba(255, 0, 128, 0.5);
+}
+
+.village-border-darkblue {
+  background-color: rgba(0, 0, 139, 0.5);
+}
+
+.village-border-purple {
+  background-color: rgba(128, 0, 128, 0.5);
+}
+
+.village-border-darkred {
+  background-color: rgba(139, 0, 0, 0.5);
+}
+
 .blob {
-  background-color: #ff5722;
+  border-radius: 50%;
+}
+
+.blob-0 {
+  background-color: rgb(255, 0, 128);
+  border-radius: 50%;
+}
+
+.blob-1 {
+  background-color: rgb(0, 0, 139);
+  border-radius: 50%;
+}
+
+.blob-2 {
+  background-color: rgb(128, 0, 128);
+  border-radius: 50%;
+}
+
+.blob-3 {
+  background-color: rgb(139, 0, 0);
   border-radius: 50%;
 }
 
