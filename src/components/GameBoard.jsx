@@ -61,11 +61,23 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
 
   // Update stats whenever blobs or food change
   useEffect(() => {
+    // Count blobs per village
+    const villageCounts = blobs.reduce((counts, blob) => {
+      counts[blob.homeVillageId] = (counts[blob.homeVillageId] || 0) + 1;
+      return counts;
+    }, {});
+
     onStatsChange({
       blobCount: blobs.length,
       foodCount: food.length,
       cycleCount: cycles,
-      season: currentSeason.name
+      season: currentSeason.name,
+      villageCounts: [
+        villageCounts[0] || 0,
+        villageCounts[1] || 0,
+        villageCounts[2] || 0,
+        villageCounts[3] || 0
+      ]
     })
   }, [blobs, food, cycles, currentSeason])
 
@@ -115,10 +127,8 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
   const generateBlobs = (grid, villages) => {
     const newBlobs = []
     while(newBlobs.length < initialBlobCount) {
-      // Randomly select a village to be the home
       const homeVillage = villages[Math.floor(Math.random() * villages.length)];
       
-      // Generate position within the village boundaries
       const x = Math.floor(Math.random() * (homeVillage.size - 2)) + homeVillage.x + 1;
       const y = Math.floor(Math.random() * (homeVillage.size - 2)) + homeVillage.y + 1;
       
@@ -129,7 +139,10 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
           id: Math.random(),
           lastAte: 0,
           lastReproduced: -25,
-          homeVillageId: homeVillage.id
+          homeVillageId: homeVillage.id,
+          isCarryingFood: false,
+          carryingCapacity: 1,
+          age: 0
         })
       }
     }
@@ -202,10 +215,12 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
     setBlobs(prevBlobs => {
       const remainingBlobs = prevBlobs.filter(blob => {
         const cyclesSinceEating = cycles - blob.lastAte;
-        return cyclesSinceEating < 50;
-      });
+        return cyclesSinceEating < 100;
+      }).map(blob => ({
+        ...blob,
+        age: blob.age + 1
+      }));
 
-      // Check if only one blob remains
       if (remainingBlobs.length === 1) {
         onLastBlob();
       }
@@ -213,23 +228,69 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
       return remainingBlobs;
     });
 
-    // Add food based on current season
-    const newFood = generateAdditionalFood(grid, currentSeason.foodPerCycle);
-    setFood(prevFood => [...prevFood, ...newFood]);
+    // Add food every 2nd cycle based on current season
+    if (cycles % 2 === 0) {
+      const newFood = generateAdditionalFood(grid, currentSeason.foodPerCycle);
+      setFood(prevFood => [...prevFood, ...newFood]);
+    }
 
     // Check for reproduction
     checkReproduction();
 
     setBlobs(prevBlobs => {
       return prevBlobs.map(blob => {
+        const hasEatenRecently = (cycles - blob.lastAte) < 25;
+        const homeVillage = villages.find(v => v.id === blob.homeVillageId);
+        const isInHomeVillage = isInVillage(blob, homeVillage);
+        const isYoung = blob.age < 25;
+
+        // If carrying food, head back to home village
+        if (blob.isCarryingFood) {
+          return moveTowardsPoint(blob, {
+            x: homeVillage.x + Math.floor(homeVillage.size / 2),
+            y: homeVillage.y + Math.floor(homeVillage.size / 2)
+          });
+        }
+        
+        // If well-fed and not young, return to village and wait
+        if (hasEatenRecently && !isYoung) {
+          if (isInHomeVillage) {
+            // Stay in place if already in village
+            return blob;
+          } else {
+            // Return to village
+            return moveTowardsPoint(blob, {
+              x: homeVillage.x + Math.floor(homeVillage.size / 2),
+              y: homeVillage.y + Math.floor(homeVillage.size / 2)
+            });
+          }
+        }
+        
         // Look for nearby food
         const nearestFood = findNearestFood(blob);
-        
         if (nearestFood) {
           return moveTowardsFood(blob, nearestFood);
-        } else {
+        }
+        
+        // Young blobs should keep searching for food
+        if (isYoung) {
           return randomMove(blob);
         }
+        
+        // If no food nearby, move towards center of island
+        const islandCenter = {
+          x: Math.floor(GRID_SIZE / 2),
+          y: Math.floor(GRID_SIZE / 2)
+        };
+        
+        // Only move towards center if blob is far from it
+        const distanceToCenter = Math.abs(blob.x - islandCenter.x) + Math.abs(blob.y - islandCenter.y);
+        if (distanceToCenter > 20) {
+          return moveTowardsPoint(blob, islandCenter);
+        }
+        
+        // If near center, move randomly
+        return randomMove(blob);
       })
     })
 
@@ -328,7 +389,7 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
     const newX = blob.x + dir.dx;
     const newY = blob.y + dir.dy;
     
-    if (isValidPosition(newX, newY)) {
+    if (isValidPosition(newX, newY) && !isCellOccupied(newX, newY)) {
       return { ...blob, x: newX, y: newY };
     }
     
@@ -356,7 +417,7 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
           setBlobs(prevBlobs => {
             return prevBlobs.map(blob => {
               if (blob.x === foodItem.x && blob.y === foodItem.y) {
-                return { ...blob, lastAte: cycles };
+                return handleFoodEncounter(blob, foodItem);
               }
               return blob;
             });
@@ -368,25 +429,53 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
     })
   }
 
+  const handleFoodEncounter = (blob, foodItem) => {
+    const cyclesSinceEating = cycles - blob.lastAte;
+    const homeVillage = villages.find(v => v.id === blob.homeVillageId);
+    const isYoung = blob.age < 25;
+    
+    // If in home village and carrying food, deposit it
+    if (blob.isCarryingFood && isInVillage(blob, homeVillage)) {
+      if (homeVillage.foodStorage < homeVillage.maxStorage) {
+        setVillages(prevVillages => 
+          prevVillages.map(v => 
+            v.id === homeVillage.id 
+              ? { ...v, foodStorage: v.foodStorage + 1 }
+              : v
+          )
+        );
+        return { ...blob, isCarryingFood: false };
+      }
+      return blob;
+    }
+    
+    // If young or hungry, eat the food
+    if (isYoung || cyclesSinceEating > 30) {
+      return { ...blob, lastAte: cycles };
+    } 
+    // If not hungry and not carrying food, pick it up
+    else if (!blob.isCarryingFood) {
+      return { ...blob, isCarryingFood: true };
+    }
+    
+    return blob;
+  };
+
   const checkReproduction = () => {
     const newBabies = [];
     
     blobs.forEach(blob1 => {
-      if (cycles - blob1.lastReproduced < 25) return;
+      if (blob1.age < 25 || cycles - blob1.lastReproduced < 25) return;
 
       blobs.forEach(blob2 => {
-        // Skip checking blob against itself
         if (blob1.id === blob2.id) return;
         
-        // Skip if blob2 has reproduced recently
-        if (cycles - blob2.lastReproduced < 25) return;
+        if (blob2.age < 25 || cycles - blob2.lastReproduced < 25) return;
         
-        // Check if both parents have eaten recently
         const blob1HasEaten = cycles - blob1.lastAte < 25;
         const blob2HasEaten = cycles - blob2.lastAte < 25;
         if (!blob1HasEaten || !blob2HasEaten) return;
         
-        // Check if blobs are adjacent
         const isAdjacent = Math.abs(blob1.x - blob2.x) <= 1 && 
                           Math.abs(blob1.y - blob2.y) <= 1;
         
@@ -399,10 +488,12 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
               id: Math.random(),
               lastAte: cycles,
               lastReproduced: cycles,
-              homeVillageId: blob1.homeVillageId  // Inherit home village from parent1
+              homeVillageId: blob1.homeVillageId,
+              isCarryingFood: false,
+              carryingCapacity: 1,
+              age: 0
             });
 
-            // Update parent blobs' reproduction timers
             setBlobs(prevBlobs => {
               return prevBlobs.map(blob => {
                 if (blob.id === blob1.id || blob.id === blob2.id) {
@@ -484,6 +575,47 @@ function GameBoard({ onStatsChange, initialBlobCount, initialFoodCount, isPaused
         color: 'darkred'
       }
     ];
+  };
+
+  // Update moveTowardsPoint to include a small random chance of deviation
+  const moveTowardsPoint = (blob, point) => {
+    // 10% chance to move randomly instead of towards target
+    if (Math.random() < 0.1) {
+      return randomMove(blob);
+    }
+
+    const dx = Math.sign(point.x - blob.x);
+    const dy = Math.sign(point.y - blob.y);
+    
+    // Try horizontal movement first
+    if (dx !== 0) {
+      const newX = blob.x + dx;
+      if (isValidPosition(newX, blob.y) && !isCellOccupied(newX, blob.y)) {
+        return { ...blob, x: newX };
+      }
+    }
+    
+    // Try vertical movement if horizontal not possible
+    if (dy !== 0) {
+      const newY = blob.y + dy;
+      if (isValidPosition(blob.x, newY) && !isCellOccupied(blob.x, newY)) {
+        return { ...blob, y: newY };
+      }
+    }
+    
+    // If can't move towards point, stay in place
+    return blob;
+  };
+
+  const isInVillage = (blob, village) => {
+    return blob.x >= village.x && 
+           blob.x < village.x + village.size && 
+           blob.y >= village.y && 
+           blob.y < village.y + village.size;
+  };
+
+  const isCellOccupied = (x, y) => {
+    return blobs.some(b => b.x === x && b.y === y);
   };
 
   return (
